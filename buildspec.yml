@@ -46,7 +46,7 @@ phases:
       - echo "Secret scan with Gitleaks"
       - gitleaks detect --source . --no-git --redact --verbose --exit-code 1
       - echo "SAST with Semgrep"
-      - semgrep scan --config auto --error --metrics off --sarif --output semgrep.sarif
+      - semgrep scan --config auto --error --sarif --output semgrep.sarif
       - echo "Package scan with Composer and NPM"
       - composer audit --locked --no-interaction
       - if [ -f package-lock.json ]; then npm audit --audit-level=high; fi
