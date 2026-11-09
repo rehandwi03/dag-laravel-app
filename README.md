@@ -67,7 +67,7 @@ The image serves on container port 80 and does not bake in runtime configuration
 This repository already includes the backend pipeline assets:
 
 - `buildspec.yml` — copied from `task-2/deploy/backend-buildspec.yml`.
-- `appspec.yaml` and `scripts/` — CodeDeploy lifecycle hooks.
+- `appspec.yml` and `scripts/` — CodeDeploy lifecycle hooks.
 - `Dockerfile`, `backend.apache.conf`, and `.dockerignore` — production image.
 - `package-lock.json` — so CodeBuild runs `npm ci` before `npm run build`.
 

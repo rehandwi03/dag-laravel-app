@@ -75,7 +75,7 @@ phases:
       - printf 'IMAGE_URI=%s\nECR_REGION=%s\n' "${IMAGE_URI}" "${ECR_REGION}" > image_uri.env
       - chmod 755 scripts/*.sh
       - REVISION_KEY="deployments/laravel-app-${IMAGE_TAG}.zip"
-      - zip -r "laravel-app-${IMAGE_TAG}.zip" appspec.yaml image_uri.env scripts
+      - zip -r "laravel-app-${IMAGE_TAG}.zip" appspec.yml image_uri.env scripts
       - echo "Uploading CodeDeploy revision to Amazon S3"
       - aws s3 cp "laravel-app-${IMAGE_TAG}.zip" "s3://${APPSPEC_S3_BUCKET}/${REVISION_KEY}" --region "${ECR_REGION}"
       - echo "Starting CodeDeploy deployment"
@@ -83,7 +83,7 @@ phases:
 
 artifacts:
   files:
-    - appspec.yaml
+    - appspec.yml
     - image_uri.env
     - scripts/**/*
     - semgrep.sarif
