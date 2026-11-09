@@ -31,7 +31,7 @@ phases:
       - echo "Installing Gitleaks, Trivy, and Semgrep"
       - curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" | tar -xz -C /usr/local/bin gitleaks
       - curl -sSfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin "v${TRIVY_VERSION}"
-      - pip3 install --quiet "semgrep==${SEMGREP_VERSION}" setuptools
+      - pip3 install --quiet "semgrep==${SEMGREP_VERSION}" "setuptools<81"
 
   pre_build:
     on-failure: ABORT
