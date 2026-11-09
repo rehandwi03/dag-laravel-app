@@ -1,0 +1,96 @@
+version: 0.2
+
+env:
+  variables:
+    ECR_REPOSITORY_URI: "123456789012.dkr.ecr.ap-southeast-1.amazonaws.com/laravel-app"
+    ECR_REGION: "ap-southeast-1"
+    APPSPEC_S3_BUCKET: "my-laravel-app-appspec-bucket"
+    CODEDEPLOY_APPLICATION_NAME: "laravel-app"
+    CODEDEPLOY_DEPLOYMENT_GROUP_NAME: "laravel-app-deployment-group"
+    GITLEAKS_VERSION: "8.18.4"
+    TRIVY_VERSION: "0.50.1"
+    SEMGREP_VERSION: "1.86.0"
+    COMPOSER_VERSION: "2.7.7"
+    TRIVY_SEVERITY: "HIGH,CRITICAL"
+
+phases:
+  install:
+    on-failure: ABORT
+    runtime-versions:
+      php: 8.2
+      nodejs: 20
+    commands:
+      - echo "Installing Composer"
+      - EXPECTED_CHECKSUM="$(php -r 'copy("https://composer.github.io/installer.sig", "php://stdout");')"
+      - php -r "copy('https://getcomposer.org/installer', 'composer-setup.php');"
+      - ACTUAL_CHECKSUM="$(php -r "echo hash_file('sha384', 'composer-setup.php');")"
+      - if [ "${EXPECTED_CHECKSUM}" != "${ACTUAL_CHECKSUM}" ]; then echo "Invalid Composer installer checksum" >&2; rm -f composer-setup.php; exit 1; fi
+      - php composer-setup.php --quiet --install-dir=/usr/local/bin --filename=composer --version="${COMPOSER_VERSION}"
+      - rm -f composer-setup.php
+      - composer --version
+      - echo "Installing Gitleaks, Trivy, and Semgrep"
+      - curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" | tar -xz -C /usr/local/bin gitleaks
+      - curl -sSfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin "v${TRIVY_VERSION}"
+      - pip3 install --quiet "semgrep==${SEMGREP_VERSION}"
+
+  pre_build:
+    on-failure: ABORT
+    commands:
+      - echo "Installing application dependencies"
+      - composer install --no-interaction --prefer-dist --no-progress
+      - if [ -f package-lock.json ]; then npm ci; fi
+      - cp .env.example .env
+      - php artisan key:generate
+      - IMAGE_TAG=$(echo "${CODEBUILD_RESOLVED_SOURCE_VERSION:-latest}" | cut -c1-7)
+      - IMAGE_URI="${ECR_REPOSITORY_URI}:${IMAGE_TAG}"
+      - echo "Secret scan with Gitleaks"
+      - gitleaks detect --source . --no-git --redact --verbose --exit-code 1
+      - echo "SAST with Semgrep"
+      - semgrep scan --config auto --error --metrics off --sarif --output semgrep.sarif
+      - echo "Package scan with Composer and NPM"
+      - composer audit --locked --no-interaction
+      - if [ -f package-lock.json ]; then npm audit --audit-level=high; fi
+      - echo "Running tests and linters"
+      - php artisan test --log-junit junit.xml
+      - vendor/bin/pint --test
+      - if [ -f package.json ]; then npm run lint --if-present; npm run build --if-present; fi
+
+  build:
+    on-failure: ABORT
+    commands:
+      - echo "Building Docker image ${IMAGE_URI}"
+      - docker build --pull -t "${ECR_REPOSITORY_URI}:latest" -t "${IMAGE_URI}" .
+      - echo "Scanning container image with Trivy"
+      - trivy image --exit-code 1 --severity "${TRIVY_SEVERITY}" --ignore-unfixed --no-progress --format json --output trivy-image.json "${IMAGE_URI}"
+      - echo "Logging in to Amazon ECR"
+      - aws ecr get-login-password --region "${ECR_REGION}" | docker login --username AWS --password-stdin "${ECR_REPOSITORY_URI%%/*}"
+      - echo "Pushing image to Amazon ECR"
+      - docker push "${ECR_REPOSITORY_URI}:latest"
+      - docker push "${IMAGE_URI}"
+
+  post_build:
+    on-failure: ABORT
+    commands:
+      - echo "Writing deployment metadata"
+      - printf 'IMAGE_URI=%s\nECR_REGION=%s\n' "${IMAGE_URI}" "${ECR_REGION}" > image_uri.env
+      - chmod 755 scripts/*.sh
+      - REVISION_KEY="deployments/laravel-app-${IMAGE_TAG}.zip"
+      - zip -r "laravel-app-${IMAGE_TAG}.zip" appspec.yaml image_uri.env scripts
+      - echo "Uploading CodeDeploy revision to Amazon S3"
+      - aws s3 cp "laravel-app-${IMAGE_TAG}.zip" "s3://${APPSPEC_S3_BUCKET}/${REVISION_KEY}" --region "${ECR_REGION}"
+      - echo "Starting CodeDeploy deployment"
+      - aws deploy create-deployment --application-name "${CODEDEPLOY_APPLICATION_NAME}" --deployment-group-name "${CODEDEPLOY_DEPLOYMENT_GROUP_NAME}" --s3-location "bucket=${APPSPEC_S3_BUCKET},key=${REVISION_KEY},bundleType=zip" --region "${ECR_REGION}"
+
+artifacts:
+  files:
+    - appspec.yaml
+    - image_uri.env
+    - scripts/**/*
+    - semgrep.sarif
+    - trivy-image.json
+
+reports:
+  laravel-tests:
+    files:
+      - junit.xml
+    file-format: JUNITXML

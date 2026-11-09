@@ -64,11 +64,13 @@ The image serves on container port 80 and does not bake in runtime configuration
 
 ## Relationship to the CodeBuild pipeline
 
-The backend CodeBuild project in `task-2/` expects:
+This repository already includes the backend pipeline assets:
 
-- this repository as the GitHub source,
-- `buildspec.yml` at the repository root (copy from `task-2/deploy/backend-buildspec.yml`),
-- `appspec.yaml` and `scripts/` for CodeDeploy (copy from `task-2/deploy/`),
-- the Dockerfile in this repository root.
+- `buildspec.yml` — copied from `task-2/deploy/backend-buildspec.yml`.
+- `appspec.yaml` and `scripts/` — CodeDeploy lifecycle hooks.
+- `Dockerfile`, `backend.apache.conf`, and `.dockerignore` — production image.
+- `package-lock.json` — so CodeBuild runs `npm ci` before `npm run build`.
+
+The CodeBuild project supplies `ECR_REPOSITORY_URI`, `ECR_REGION`, `APPSPEC_S3_BUCKET`, `CODEDEPLOY_APPLICATION_NAME`, and `CODEDEPLOY_DEPLOYMENT_GROUP_NAME` as project environment variables. These override the placeholder values in `buildspec.yml`.
 
 The sample app itself has no Terraform or AWS credentials. CodeBuild builds and pushes the image, and CodeDeploy starts the container on the EC2 Auto Scaling Group.
